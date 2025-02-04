@@ -1,18 +1,15 @@
-
 import torch
 from torch.utils.data import Dataset as nn_Dataset
 from torch.utils.data import DataLoader
 import random
 import string
-from transformers import MarianMTModel, MarianTokenizer
+from transformers import RobertaTokenizer, MarianMTModel, MarianTokenizer
 import spacy
 from datasets import load_dataset, Dataset
-from transformers import RobertaTokenizer
 import pandas as pd
-import random
+import argparse
 nlp = spacy.load("en_core_web_md")
 
-# Convert dataset to PyTorch tensors
 class ToxicityDataset(nn_Dataset):
     def __init__(self, dataset, transform = None):
         self.dataset = dataset
@@ -23,20 +20,18 @@ class ToxicityDataset(nn_Dataset):
         return len(self.dataset)
 
     def __getitem__(self, idx):
-        # Apply transformation (e.g., adversarial attack) if provided
         text = self.dataset[idx]['comment_text']
         label = torch.tensor(self.dataset[idx]["label"], dtype=torch.long)
         is_adversarial = torch.tensor(0, dtype = torch.bool)
         
         encoding = self.tokenizer(text, padding="max_length", truncation=True, max_length=256, return_tensors="pt")
 
-        # Convert tokenized outputs to tensor format
         item = {
-            'text': text, 
+            "text": text, 
             "input_ids": encoding["input_ids"].squeeze(0),
             "attention_mask": encoding["attention_mask"].squeeze(0),
             "label": label, 
-            'is_adversarial' : is_adversarial
+            "is_adversarial" : is_adversarial
         }
         return item
 
@@ -68,19 +63,6 @@ def random_char_insertion(text, p=0.1):
             word = word[:i] + char + word[i:]
         perturbed_words.append(word)
     return ' '.join(perturbed_words)
-
-# def synonym_replacement(text, p=0.2):
-#     words = text.split()
-#     perturbed_words = []
-#     for word in words:
-#         if random.random() < p:
-#             synonyms = wordnet.synsets(word)
-#             if synonyms:
-#                 lemmas = synonyms[0].lemmas()
-#                 if len(lemmas) > 1:
-#                     word = random.choice(lemmas[1:]).name().replace('_', ' ')
-#         perturbed_words.append(word)
-#     return ' '.join(perturbed_words)
     
 def synonym_replacement(text, p=0.2, top_k = 5):
     words = text.split()
@@ -90,7 +72,8 @@ def synonym_replacement(text, p=0.2, top_k = 5):
         if random.random() < p:
             token = nlp(word)[0]
             if token.has_vector: 
-                similar_words = sorted([(w.text, token.similarity(w)) for w in nlp.vocab if w.has_vector and w.is_alpha and not w.is_stop and w.text != token.text and w.vector_norm > 0], 
+                similar_words = sorted([(w.text, token.similarity(w)) for w in nlp.vocab if w.has_vector \
+                                            and w.is_alpha and not w.is_stop and w.text != token.text and w.vector_norm > 0], 
                         key=lambda item: item[1], 
                         reverse=True
                     )
@@ -172,12 +155,10 @@ class AdversarialTextDataset(nn_Dataset):
         text = self.original_dataset[idx]['text']
         label = self.original_dataset[idx]['label']
         perturbed_text = self.adversarial_transform(text)
-        is_adversarial = torch.tensor(1, dtype = torch.bool)
+        is_adversarial = torch.tensor(1 if self.transform_prob > 0 else 0, dtype = torch.bool)
 
-        # Tokenize on the fly
         encoding = self.tokenizer(perturbed_text, padding="max_length", truncation=True, max_length=256, return_tensors="pt")
 
-        # Convert tokenized outputs to tensor format
         item = {
             'text': perturbed_text, 
             "input_ids": encoding["input_ids"].squeeze(0),
@@ -191,59 +172,48 @@ def preprocess_function(example):
     example["label"] = 1 if example["toxic"] >= 0.5 else 0
     return example
 
-def load_toxicity_dataset(train_size, test_size, class_balancing):
-
-    dataset = load_dataset("jigsaw_toxicity_pred", data_dir="./jigsaw_toxicity_data", trust_remote_code=True)
+def load_toxicity_dataset(directory_path):
+    dataset = load_dataset("jigsaw_toxicity_pred", data_dir=directory_path, trust_remote_code=True)
     dataset = dataset.map(preprocess_function)
-
-    if class_balancing:
-        ## train set
-        df_train = pd.DataFrame(dataset["train"])
-        df_label_0 = df_train[df_train["label"] == 0]
-        df_label_1 = df_train[df_train["label"] == 1]
-        df_balanced = pd.concat([
-            df_label_0.sample(n=train_size//2, random_state=42),
-            df_label_1.sample(n=train_size//2, random_state=42)
-        ])
-        df_balanced = df_balanced.sample(frac=1, random_state=42).reset_index(drop=True)
-        dataset["train"] = Dataset.from_pandas(df_balanced)
-
-        ## test set
-        df_test = pd.DataFrame(dataset["test"])
-        df_label_0_test, df_label_1_test = df_test[df_test["label"] == 0], df_train[df_train["label"] == 1]
-        df_balanced_test = pd.concat([
-            df_label_0_test.sample(n=test_size//2, random_state=42),
-            df_label_1_test.sample(n=test_size//2, random_state=42)
-        ])
-        df_balanced_test = df_balanced_test.sample(frac=1, random_state=42).reset_index(drop=True)
-        dataset["test"] = Dataset.from_pandas(df_balanced_test)
-        print(dataset)
-    else:
-        # Shuffle dataset and sample
-        dataset["train"] = dataset["train"].shuffle(seed=42).select(range(train_size))
-        dataset["test"] = dataset["test"].shuffle(seed=42).select(range(test_size))
-
-    train_dataset = ToxicityDataset(dataset["train"])
-    test_dataset = ToxicityDataset(dataset["test"])
-    print(len(train_dataset), len(test_dataset))
+    train_dataset, test_dataset = dataset['train'], dataset['test']
     return train_dataset, test_dataset
 
-def get_dataloaders(train_dataset, 
-                    test_dataset,
+def get_dataset(directory_path, dataset_size, split= 'train', class_balancing=True):
+    
+    train_dataset, test_dataset = load_toxicity_dataset(directory_path)
+    if split == 'train':
+        dataset = train_dataset
+    else:
+        dataset = test_dataset
+        
+    if class_balancing:
+        df = pd.DataFrame(dataset)
+        df_label_0 = df[df["label"] == 0]
+        df_label_1 = df[df["label"] == 1]
+        df_balanced = pd.concat([
+            df_label_0.sample(n=dataset_size//2, random_state=42),
+            df_label_1.sample(n=dataset_size//2, random_state=42)
+        ])
+        df_balanced = df_balanced.sample(frac=1, random_state=42).reset_index(drop=True)
+        dataset = Dataset.from_pandas(df_balanced)
+    else:
+        # Shuffle dataset and sample
+        dataset = dataset.shuffle(seed=42).select(range(dataset_size))
+
+    dataset = ToxicityDataset(dataset)
+    print(f'Length Dataset:{len(dataset)}')
+    return dataset
+
+def get_dataloader(dataset, 
                     batch_size: int  = 32,
                     shuffle: bool = True, 
                     drop_last: bool = False):
     
-    if train_dataset:
-        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffle, drop_last=drop_last)
+    if dataset:
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, drop_last=drop_last)
     else:
-        train_loader = None
-    
-    if test_dataset:
-        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=shuffle, drop_last=drop_last)
-    else:
-        test_loader = None
-    return train_loader, test_loader
+        dataloader = None
+    return dataloader
 
 def get_adversarial_dataloader(original_dataset,
                                 batch_size: int  = 32,
@@ -256,3 +226,17 @@ def get_adversarial_dataloader(original_dataset,
     adv_dataset = AdversarialTextDataset(original_dataset, transform_prob=transform_prob, apply_back_translation=apply_back_translation)
     adv_dataloader = DataLoader(adv_dataset, batch_size=batch_size, shuffle=shuffle, drop_last=drop_last)
     return adv_dataset, adv_dataloader
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description="Train a toxicity classifier")
+    parser.add_argument("--data_directory", type=str, required=True, help="Path to the dataset directory.")
+    args = parser.parse_args()
+
+    data_directory = args.data_directory #"./jigsaw_toxicity_data"
+    trainset, testset = load_toxicity_dataset(data_directory)
+
+    train_dataset = get_dataset(trainset, dataset_size = 5000, class_balancing = True)
+    test_dataset = get_dataset(testset, dataset_size = 1000, class_balancing = True)
+
+    train_dataloader = get_dataloader(train_dataset, batch_size=64)
+    test_dataloader = get_dataloader(test_dataset, batch_size=64)
