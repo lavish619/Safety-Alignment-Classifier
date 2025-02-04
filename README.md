@@ -49,17 +49,17 @@ unzip -o ./jigsaw_toxicity_data/test_labels.csv.zip -d ./jigsaw_toxicity_data
 
 ### 1️⃣ Training the Baseline Classifier
 ```bash
-python train.py --data_directory ./jigsaw_toxicity_data --model_path ./models/classifier.pt
+python ./src/train.py --data_directory ./jigsaw_toxicity_data --model_path ./models/classifier.pt
 ```
 
 ### 2️⃣ Evaluation and Testing against Adversarial Examples
 ```bash
-python evaluate.py --data_directory ./jigsaw_toxicity_data --model_path ./models/classifier.pt --adversarial
+python ./src/evaluate.py --data_directory ./jigsaw_toxicity_data --model_path ./models/classifier.pt --adversarial
 ```
 
 ### 3️⃣ RL-Based Fine-Tuning for Robustness and Evaluation
 ```bash
-python rl_policy.py --data_directory ./jigsaw_toxicity_data --classifier_model_path ./models/classifier.pt --policy_model_path ./models/policy.pt
+python ./src/rl_policy.py --data_directory ./jigsaw_toxicity_data --classifier_model_path ./models/classifier.pt --policy_model_path ./models/policy.pt
 ```
 
 ## 🔧 Project Structure
