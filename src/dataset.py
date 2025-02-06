@@ -15,6 +15,7 @@ class ToxicityDataset(nn_Dataset):
         self.dataset = dataset
         self.transform = transform
         self.tokenizer = RobertaTokenizer.from_pretrained("roberta-base")
+        self.is_adversarial = torch.zeros(len(dataset), dtype=torch.bool)
 
     def __len__(self):
         return len(self.dataset)
@@ -22,7 +23,7 @@ class ToxicityDataset(nn_Dataset):
     def __getitem__(self, idx):
         text = self.dataset[idx]['comment_text']
         label = torch.tensor(self.dataset[idx]["label"], dtype=torch.long)
-        is_adversarial = torch.tensor(0, dtype = torch.bool)
+        is_adversarial = self.is_adversarial[idx]
         
         encoding = self.tokenizer(text, padding="max_length", truncation=True, max_length=256, return_tensors="pt")
 
@@ -131,6 +132,8 @@ class AdversarialTextDataset(nn_Dataset):
         self.transform_prob = transform_prob
         self.apply_back_translation = apply_back_translation
         self.tokenizer = RobertaTokenizer.from_pretrained("roberta-base")
+        self.is_adversarial = torch.ones(len(original_dataset),  dtype = torch.bool) if self.transform_prob > 0 \
+            else torch.zeros(len(original_dataset),  dtype = torch.bool)
 
     def adversarial_transform(self, text):
         """Applies multiple perturbations randomly."""
@@ -155,7 +158,7 @@ class AdversarialTextDataset(nn_Dataset):
         text = self.original_dataset[idx]['text']
         label = self.original_dataset[idx]['label']
         perturbed_text = self.adversarial_transform(text)
-        is_adversarial = torch.tensor(1 if self.transform_prob > 0 else 0, dtype = torch.bool)
+        is_adversarial = self.is_adversarial[idx]
 
         encoding = self.tokenizer(perturbed_text, padding="max_length", truncation=True, max_length=256, return_tensors="pt")
 
