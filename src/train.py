@@ -52,7 +52,9 @@ if __name__ == "__main__":
     dataloader = get_dataloader(dataset)
 
     model = ToxicityClassifier().to(device)
-    
+    if torch.cuda.device_count() >1:
+        model = torch.nn.DataParallel(model).to(device)
+
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.AdamW(model.parameters(), lr=2e-5)
 

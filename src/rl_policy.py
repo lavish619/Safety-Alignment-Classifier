@@ -136,9 +136,13 @@ if __name__ == "__main__":
 
     model = ToxicityClassifier()
     model.load_state_dict(torch.load(classifier_model_path, weights_only=True, map_location=torch.device('cpu')))
-    model = model.to(device)
     
-    policy_network = PolicyNetwork(input_dim=2, num_classes=2).to(device) 
+    policy_network = PolicyNetwork(input_dim=2, num_classes=2)
+    if torch.cuda.device_count() > 1:
+        model = torch.nn.DataParallel(model)
+        policy_network = torch.nn.DataParallel(policy_network)
+    model = model.to(device)
+    policy_network = policy_network.to(device)
 
     ## train
     train_dataset = get_dataset(data_directory, dataset_size=5000, split='train', class_balancing=True)

@@ -48,6 +48,8 @@ if __name__ == "__main__":
 
     model = ToxicityClassifier()
     model.load_state_dict(torch.load(model_path, weights_only=True, map_location=torch.device('cpu')))
+    if torch.cuda.device_count() >1:
+        model = torch.nn.DataParallel(model)
     model = model.to(device)
     
     evaluate(model, dataloader, device)
