@@ -44,7 +44,7 @@ class PPOAgent:
             predictions = logits.argmax(dim=-1) 
 
         correct = (predictions == labels).float()
-        reward = torch.where(adversarial, -correct + 1, correct)
+        reward = torch.where(adversarial, torch.where(correct.bool(), 1.5, -1), correct)
         return reward  
 
 # Environment simulation
