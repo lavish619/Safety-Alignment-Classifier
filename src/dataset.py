@@ -122,7 +122,7 @@ def back_translation(text):
         return text 
 
 class AdversarialTextDataset(nn_Dataset):
-    def __init__(self, original_dataset, transform_prob=0.3, apply_back_translation=False):
+    def __init__(self, original_dataset, transform_prob=0.3, apply_back_translation=False, fully_adversarial=False):
         """
         :param original_dataset: List of tuples (text, label) or any dataset with (text, label) format.
         :param transform_prob: Probability of applying each transformation.
@@ -132,8 +132,13 @@ class AdversarialTextDataset(nn_Dataset):
         self.transform_prob = transform_prob
         self.apply_back_translation = apply_back_translation
         self.tokenizer = RobertaTokenizer.from_pretrained("roberta-base")
-        self.is_adversarial = torch.ones(len(original_dataset),  dtype = torch.bool) if self.transform_prob > 0 \
-            else torch.zeros(len(original_dataset),  dtype = torch.bool)
+        if fully_adversarial:
+            self.transform_prob = torch.full(len(original_dataset), transform_prob)
+        else:
+            random_indices = torch.randint(2, (len(original_dataset),)) 
+            prob_values = torch.tensor([0, transform_prob]) 
+            self.transform_prob = prob_values[random_indices] 
+        self.is_adversarial = self.transform_prob != 0
 
     def adversarial_transform(self, text):
         """Applies multiple perturbations randomly."""
@@ -157,7 +162,11 @@ class AdversarialTextDataset(nn_Dataset):
     def __getitem__(self, idx):
         text = self.original_dataset[idx]['text']
         label = self.original_dataset[idx]['label']
-        perturbed_text = self.adversarial_transform(text)
+        transform_prob = self.transform_prob[idx]
+        if transform_prob:
+            perturbed_text = self.adversarial_transform(text, transform_prob)
+        else:
+            perturbed_text = text
         is_adversarial = self.is_adversarial[idx]
 
         encoding = self.tokenizer(perturbed_text, padding="max_length", truncation=True, max_length=256, return_tensors="pt")
@@ -223,10 +232,13 @@ def get_adversarial_dataloader(original_dataset,
                                 shuffle: bool = True, 
                                 drop_last: bool = False,
                                 transform_prob: float= 0.4,
-                                apply_back_translation: bool = False
+                                apply_back_translation: bool = False, 
+                                fully_adversarial: bool = False
                                 ):
     # Wrap the dataset with adversarial transformations
-    adv_dataset = AdversarialTextDataset(original_dataset, transform_prob=transform_prob, apply_back_translation=apply_back_translation)
+    adv_dataset = AdversarialTextDataset(original_dataset, transform_prob=transform_prob, 
+                                         apply_back_translation=apply_back_translation, 
+                                         fully_adversarial=fully_adversarial)
     adv_dataloader = DataLoader(adv_dataset, batch_size=batch_size, shuffle=shuffle, drop_last=drop_last)
     return adv_dataset, adv_dataloader
 

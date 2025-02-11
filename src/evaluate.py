@@ -55,6 +55,6 @@ if __name__ == "__main__":
     evaluate(model, dataloader, device)
 
     if adversarial:
-        _, adv_dataloader = get_adversarial_dataloader(dataset, transform_prob=0.4)
+        _, adv_dataloader = get_adversarial_dataloader(dataset, transform_prob=0.4, fully_adversarial=True)
         evaluate(model, adv_dataloader, device)
 
